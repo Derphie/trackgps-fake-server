@@ -1,0 +1,27 @@
+# fly.toml — generated for the fake TrackGPS server
+# Run `fly launch` first (it will offer to overwrite this; say no and keep
+# this one, or just paste the `app` name it picks into here).
+
+app = "trackgps-fake-server"      # fly will ask you to confirm/change this
+primary_region = "waw"            # Warsaw — closest Fly region to Moldova/Romania
+
+[build]
+
+[env]
+  PORT = "8080"
+  # Set your vehicles + scenarios here, or via `fly secrets set` (see README).
+  VEHICLES = "12345:daily-rest"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"   # keep it warm; polling every 35s shouldn't cold-start
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
