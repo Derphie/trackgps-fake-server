@@ -2,11 +2,13 @@
 
 const express = require('express');
 const multer = require('multer');
-const crypto = require('crypto');
-const { computeState } = require('./scenarios');
+const path = require('path');
+const { computeState, SCENARIOS } = require('./scenarios');
+const vehicleStore = require('./vehicleStore');
 
 const upload = multer();
 const app = express();
+app.use(express.json());
 
 const PORT = process.env.PORT || 8080;
 const FAKE_TOKEN = process.env.FAKE_TOKEN || 'fake-token';
@@ -14,22 +16,13 @@ const FAKE_TOKEN = process.env.FAKE_TOKEN || 'fake-token';
 // accept anything (matches "any onboarded org can hit this" test posture).
 const EXPECT_USERNAME = process.env.TRACKGPS_EXPECT_USERNAME || null;
 const EXPECT_PASSWORD = process.env.TRACKGPS_EXPECT_PASSWORD || null;
+// Optional: protect the dashboard/admin API. Leave unset for local/dev use.
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || null;
 
-// VEHICLES env format: "vehicleId:scenario,vehicleId:scenario,..."
-// e.g. "12345:daily-rest,67890:gps-gap"
-// Falls back to a single demo vehicle if unset.
-function parseVehiclesEnv() {
-  const raw = process.env.VEHICLES || '12345:daily-rest';
-  return raw.split(',').map((entry) => {
-    const [id, scenario] = entry.split(':').map((s) => s.trim());
-    return { vehicleId: Number(id), scenario: scenario || 'driving-normal' };
-  });
+console.log('Fake TrackGPS server starting with vehicles:', vehicleStore.getAll());
+if (!ADMIN_TOKEN) {
+  console.log('ADMIN_TOKEN not set — dashboard/admin API is UNPROTECTED. Set ADMIN_TOKEN in production.');
 }
-
-const VEHICLES = parseVehiclesEnv();
-const SERVER_STARTED_AT = Date.now();
-
-console.log('Fake TrackGPS server starting with vehicles:', VEHICLES);
 
 // ---- Timestamp formatting: Europe/Bucharest LOCAL naive datetime ----------
 // The real ingester parses GpsDate as Europe/Bucharest local time (see
@@ -64,7 +57,16 @@ function requireBearer(req, res, next) {
   next();
 }
 
-// ---- Endpoints --------------------------------------------------------------
+function requireAdmin(req, res, next) {
+  if (!ADMIN_TOKEN) return next(); // open when not configured (local/dev)
+  const token = req.headers['x-admin-token'];
+  if (token !== ADMIN_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized — missing/invalid X-Admin-Token' });
+  }
+  next();
+}
+
+// ---- TrackGPS contract endpoints (unchanged from the real API's POV) ------
 
 app.post(
   '/api/authentication/login',
@@ -101,8 +103,8 @@ app.get('/api/carriers/company-vehicles', requireBearer, (req, res) => {
   const now = new Date();
   const payload = [];
 
-  for (const v of VEHICLES) {
-    const state = computeState(v.scenario, SERVER_STARTED_AT, now.getTime());
+  for (const v of vehicleStore.getAll()) {
+    const state = computeState(v, now.getTime());
     if (state.isGap) {
       console.log(`[poll] vehicle=${v.vehicleId} scenario=${v.scenario} -> GAP (omitted)`);
       continue; // simulate a real GPS blackout: vehicle just isn't in the payload
@@ -131,10 +133,56 @@ app.get('/api/carriers/company-vehicles', requireBearer, (req, res) => {
   res.json({ IsSuccess: true, Payload: payload });
 });
 
-// Basic health check for VPS/uptime monitoring, not part of the contract.
+// Basic health check for uptime monitoring, not part of the contract.
 app.get('/health', (req, res) => res.json({ ok: true, uptime: process.uptime() }));
+
+// ---- Admin API (dashboard backend) -----------------------------------------
+
+app.get('/admin/api/scenarios', requireAdmin, (req, res) => {
+  res.json(Object.keys(SCENARIOS));
+});
+
+app.get('/admin/api/vehicles', requireAdmin, (req, res) => {
+  const now = Date.now();
+  const list = vehicleStore.getAll().map((v) => ({
+    ...v,
+    liveState: computeState(v, now),
+  }));
+  res.json(list);
+});
+
+app.post('/admin/api/vehicles', requireAdmin, (req, res) => {
+  try {
+    vehicleStore.add(req.body);
+    res.status(201).json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.put('/admin/api/vehicles/:id', requireAdmin, (req, res) => {
+  try {
+    vehicleStore.update(req.params.id, req.body);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+app.delete('/admin/api/vehicles/:id', requireAdmin, (req, res) => {
+  try {
+    vehicleStore.remove(req.params.id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+// Dashboard static UI
+app.use('/admin', express.static(path.join(__dirname, 'public')));
 
 app.listen(PORT, () => {
   console.log(`Fake TrackGPS server listening on :${PORT}`);
   console.log(`Token: ${FAKE_TOKEN}`);
+  console.log(`Dashboard: http://localhost:${PORT}/admin`);
 });

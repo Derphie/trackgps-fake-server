@@ -32,6 +32,53 @@ server boot), so you can mix e.g. one vehicle on `daily-rest` and another on
 stationary. The message thread didn't specify the mapping — check
 `RulesEngine.applyGpsEvent` and adjust `scenarios.js` if it's inverted.
 
+## Dashboard
+
+A web UI at `/admin` lets you manage vehicles without touching env vars or
+redeploying:
+
+- Add/remove vehicles at runtime, pick a predefined scenario, or build a
+  custom cycle (driving/break/rest/gap segments with duration + speed)
+- See each vehicle's live segment, speed, and position, refreshed every 4s
+
+It's backed by a small JSON-file store (`data/vehicles.json`), so changes
+survive server restarts — but **not** a fresh `fly deploy`, since Fly's
+filesystem resets on each deploy unless you attach a
+[volume](https://fly.io/docs/volumes/overview/). For a test tool this is
+usually fine — re-add vehicles after a deploy, or mount a volume at
+`/app/data` if you want it to persist across deploys too.
+
+`VEHICLES` env var still works as before — it only seeds the store on the
+very first boot (when `data/vehicles.json` doesn't exist yet). After that,
+the dashboard is the source of truth.
+
+### Protecting the dashboard
+
+It's unprotected by default (fine for local dev). Since this deploys to a
+public `.fly.dev` URL, set an admin token before/after deploying so randoms
+on the internet can't rewrite your test fleet:
+
+```bash
+fly secrets set ADMIN_TOKEN="something-long-and-random"
+```
+
+The dashboard will then prompt for the token (stored in your browser's
+localStorage) before it can read/write vehicles. The TrackGPS contract
+endpoints (`/api/authentication/login`, `/api/carriers/company-vehicles`)
+are unaffected — those stay open, matching the real API's behavior.
+
+### Admin API (used by the dashboard, callable directly too)
+
+| Method | Path                      | Body                                              |
+|--------|---------------------------|----------------------------------------------------|
+| GET    | `/admin/api/vehicles`     | —                                                  |
+| POST   | `/admin/api/vehicles`     | `{ vehicleId, scenario }` or `{ vehicleId, customSegments: [...] }` |
+| PUT    | `/admin/api/vehicles/:id` | same as POST body, partial                         |
+| DELETE | `/admin/api/vehicles/:id` | —                                                  |
+| GET    | `/admin/api/scenarios`    | — (lists predefined scenario names)                |
+
+Add `X-Admin-Token: <token>` header if `ADMIN_TOKEN` is set.
+
 ## Setup
 
 ```bash

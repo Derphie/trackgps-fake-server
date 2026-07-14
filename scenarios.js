@@ -99,12 +99,22 @@ function totalDuration(segments) {
   return segments.reduce((s, seg) => s + seg.durationMin, 0);
 }
 
+function getSegments(vehicle) {
+  if (Array.isArray(vehicle.customSegments) && vehicle.customSegments.length > 0) {
+    return vehicle.customSegments;
+  }
+  return SCENARIOS[vehicle.scenario] || SCENARIOS['driving-normal'];
+}
+
 /**
  * Returns { lat, lon, speedKmh, course, engineEvent, isGap } for a vehicle
- * at `nowMs`, given it started the scenario at `startedAtMs`.
+ * at `nowMs`. `vehicle` is { scenario, customSegments, startedAt } — each
+ * vehicle has its own clock (startedAt) so editing one from the dashboard
+ * doesn't shift every other vehicle's schedule.
  */
-function computeState(scenarioName, startedAtMs, nowMs) {
-  const segments = SCENARIOS[scenarioName] || SCENARIOS['driving-normal'];
+function computeState(vehicle, nowMs) {
+  const segments = getSegments(vehicle);
+  const startedAtMs = vehicle.startedAt || nowMs;
   const totalMin = totalDuration(segments);
   const elapsedMin = ((nowMs - startedAtMs) / 60000) % totalMin;
 
@@ -168,4 +178,4 @@ function computeState(scenarioName, startedAtMs, nowMs) {
   };
 }
 
-module.exports = { SCENARIOS, computeState };
+module.exports = { SCENARIOS, computeState, getSegments };

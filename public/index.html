@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fake TrackGPS — Dashboard</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --border: #262c36;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #4f8cff;
+    --accent-dim: #2a3f66;
+    --good: #3fb950;
+    --warn: #d29922;
+    --bad: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .layout { display: grid; grid-template-columns: 1fr; gap: 20px; max-width: 1100px; margin: 0 auto; }
+  @media (min-width: 900px) {
+    .layout { grid-template-columns: 1.3fr 1fr; }
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .panel h2 { font-size: 14px; margin: 0 0 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .veh-id { font-weight: 600; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; }
+  .badge.driving { background: rgba(63,185,80,0.15); color: var(--good); }
+  .badge.rest, .badge.break { background: rgba(210,153,34,0.15); color: var(--warn); }
+  .badge.gap { background: rgba(248,81,73,0.15); color: var(--bad); }
+  select, input {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 13px;
+    width: 100%;
+  }
+  label { font-size: 12px; color: var(--muted); display: block; margin: 10px 0 4px; }
+  button {
+    background: var(--accent);
+    border: none;
+    color: white;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  button.danger { background: transparent; border: 1px solid var(--bad); color: var(--bad); padding: 4px 8px; font-size: 12px; }
+  button.small { padding: 4px 8px; font-size: 12px; }
+  .row-actions { display: flex; gap: 6px; }
+  .form-actions { display: flex; gap: 8px; margin-top: 16px; }
+  .segments-list { margin-top: 8px; }
+  .segment-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 6px; margin-bottom: 6px; align-items: center; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .toggle { display: flex; gap: 8px; margin: 10px 0; }
+  .toggle button { flex: 1; background: transparent; border: 1px solid var(--border); }
+  .toggle button.active { background: var(--accent-dim); border-color: var(--accent); }
+  #tokenBar { display: none; margin-bottom: 16px; }
+  #tokenBar.show { display: flex; gap: 8px; }
+  .empty { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
+  .err { color: var(--bad); font-size: 12px; margin-top: 8px; }
+  .pos { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>🛰️ Fake TrackGPS — Dashboard</h1>
+<div class="subtitle">Simulator pentru testarea end-to-end a integrării TrackGPS din EvitaAmenda</div>
+
+<div id="tokenBar">
+  <input id="tokenInput" placeholder="X-Admin-Token" />
+  <button class="secondary small" onclick="saveToken()">Salvează token</button>
+</div>
+
+<div class="layout">
+  <div class="panel">
+    <h2>Vehicule active</h2>
+    <table id="vehTable">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Scenariu</th>
+          <th>Stare</th>
+          <th>Poziție</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="vehBody"></tbody>
+    </table>
+    <div id="emptyMsg" class="empty" style="display:none">Niciun vehicul încă — adaugă unul din panoul din dreapta.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Adaugă vehicul</h2>
+    <label>Vehicle ID (trebuie să corespundă provider_vehicle_uid din org)</label>
+    <input id="newVehicleId" type="number" placeholder="ex: 12345" />
+
+    <div class="toggle">
+      <button id="modeScenario" class="active" onclick="setMode('scenario')">Scenariu predefinit</button>
+      <button id="modeCustom" onclick="setMode('custom')">Parametri custom</button>
+    </div>
+
+    <div id="scenarioPicker">
+      <label>Scenariu</label>
+      <select id="scenarioSelect"></select>
+    </div>
+
+    <div id="customBuilder" style="display:none">
+      <div class="muted">Construiește ciclul: adaugă segmente care se repetă în buclă.</div>
+      <div class="segments-list" id="segmentsList"></div>
+      <button class="secondary small" onclick="addSegmentRow()">+ Adaugă segment</button>
+    </div>
+
+    <div class="form-actions">
+      <button onclick="createVehicle()">Adaugă</button>
+    </div>
+    <div id="addErr" class="err"></div>
+  </div>
+</div>
+
+<script>
+let ADMIN_TOKEN = localStorage.getItem('adminToken') || '';
+let scenarios = [];
+let mode = 'scenario';
+
+function headers() {
+  const h = { 'Content-Type': 'application/json' };
+  if (ADMIN_TOKEN) h['X-Admin-Token'] = ADMIN_TOKEN;
+  return h;
+}
+
+function saveToken() {
+  ADMIN_TOKEN = document.getElementById('tokenInput').value.trim();
+  localStorage.setItem('adminToken', ADMIN_TOKEN);
+  loadAll();
+}
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('modeScenario').classList.toggle('active', m === 'scenario');
+  document.getElementById('modeCustom').classList.toggle('active', m === 'custom');
+  document.getElementById('scenarioPicker').style.display = m === 'scenario' ? 'block' : 'none';
+  document.getElementById('customBuilder').style.display = m === 'custom' ? 'block' : 'none';
+}
+
+function addSegmentRow(type = 'driving', durationMin = 60, speedKmh = 70) {
+  const list = document.getElementById('segmentsList');
+  const row = document.createElement('div');
+  row.className = 'segment-row';
+  row.innerHTML = `
+    <select class="seg-type" onchange="toggleSpeedField(this)">
+      <option value="driving" ${type === 'driving' ? 'selected' : ''}>Condus</option>
+      <option value="break" ${type === 'break' ? 'selected' : ''}>Pauză</option>
+      <option value="rest" ${type === 'rest' ? 'selected' : ''}>Odihnă</option>
+      <option value="gap" ${type === 'gap' ? 'selected' : ''}>Fără semnal GPS</option>
+    </select>
+    <input class="seg-duration" type="number" placeholder="Durată (min)" value="${durationMin}" />
+    <input class="seg-speed" type="number" placeholder="Viteză (km/h)" value="${speedKmh}" style="display:${type === 'driving' ? 'block' : 'none'}" />
+    <button class="danger small" onclick="this.parentElement.remove()">✕</button>
+  `;
+  list.appendChild(row);
+}
+
+function toggleSpeedField(select) {
+  const speedInput = select.parentElement.querySelector('.seg-speed');
+  speedInput.style.display = select.value === 'driving' ? 'block' : 'none';
+}
+
+function collectSegments() {
+  const rows = document.querySelectorAll('#segmentsList .segment-row');
+  return Array.from(rows).map((row) => {
+    const type = row.querySelector('.seg-type').value;
+    const durationMin = Number(row.querySelector('.seg-duration').value) || 1;
+    const speedKmh = type === 'driving' ? (Number(row.querySelector('.seg-speed').value) || 0) : 0;
+    return { type, durationMin, speedKmh };
+  });
+}
+
+async function loadScenarios() {
+  const res = await fetch('/admin/api/scenarios', { headers: headers() });
+  if (!res.ok) return;
+  scenarios = await res.json();
+  const sel = document.getElementById('scenarioSelect');
+  sel.innerHTML = scenarios.map((s) => `<option value="${s}">${s}</option>`).join('');
+}
+
+function segmentBadgeClass(type) {
+  return { driving: 'driving', rest: 'rest', break: 'break', gap: 'gap' }[type] || 'driving';
+}
+
+async function loadVehicles() {
+  const res = await fetch('/admin/api/vehicles', { headers: headers() });
+  if (res.status === 401) {
+    document.getElementById('tokenBar').classList.add('show');
+    return;
+  }
+  document.getElementById('tokenBar').classList.remove('show');
+  const vehicles = await res.json();
+  const body = document.getElementById('vehBody');
+  document.getElementById('emptyMsg').style.display = vehicles.length ? 'none' : 'block';
+  body.innerHTML = vehicles.map((v) => {
+    const s = v.liveState || {};
+    const isCustom = Array.isArray(v.customSegments) && v.customSegments.length > 0;
+    const scenarioLabel = isCustom ? 'custom' : v.scenario;
+    const state = s.isGap
+      ? '<span class="badge gap">gap (fără semnal)</span>'
+      : `<span class="badge ${segmentBadgeClass(s.segmentType)}">${s.segmentType} · ${s.speedKmh} km/h</span>`;
+    const pos = s.isGap ? '—' : `<span class="pos">${s.lat?.toFixed(4)}, ${s.lon?.toFixed(4)}</span>`;
+    return `
+      <tr>
+        <td class="veh-id">${v.vehicleId}</td>
+        <td>${scenarioLabel}</td>
+        <td>${state}</td>
+        <td>${pos}</td>
+        <td class="row-actions">
+          <button class="secondary small" onclick="deleteVehicle(${v.vehicleId})">Șterge</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function createVehicle() {
+  const errEl = document.getElementById('addErr');
+  errEl.textContent = '';
+  const vehicleId = document.getElementById('newVehicleId').value;
+  if (!vehicleId) { errEl.textContent = 'Introdu un Vehicle ID.'; return; }
+
+  const body = { vehicleId: Number(vehicleId) };
+  if (mode === 'scenario') {
+    body.scenario = document.getElementById('scenarioSelect').value;
+  } else {
+    const segs = collectSegments();
+    if (segs.length === 0) { errEl.textContent = 'Adaugă cel puțin un segment.'; return; }
+    body.customSegments = segs;
+    body.scenario = 'custom';
+  }
+
+  const res = await fetch('/admin/api/vehicles', { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error || 'Eroare la adăugare.'; return; }
+
+  document.getElementById('newVehicleId').value = '';
+  document.querySelectorAll('#segmentsList .segment-row').forEach((r) => r.remove());
+  loadVehicles();
+}
+
+async function deleteVehicle(id) {
+  if (!confirm(`Ștergi vehiculul ${id}?`)) return;
+  await fetch(`/admin/api/vehicles/${id}`, { method: 'DELETE', headers: headers() });
+  loadVehicles();
+}
+
+async function loadAll() {
+  await loadScenarios();
+  await loadVehicles();
+}
+
+loadAll();
+setInterval(loadVehicles, 4000);
+</script>
+</body>
+</html>
