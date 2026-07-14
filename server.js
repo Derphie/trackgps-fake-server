@@ -66,6 +66,9 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// Convenience: visiting the root URL goes straight to the dashboard.
+app.get('/', (req, res) => res.redirect('/admin'));
+
 // ---- TrackGPS contract endpoints (unchanged from the real API's POV) ------
 
 app.post(

@@ -129,6 +129,12 @@
 
     <div id="customBuilder" style="display:none">
       <div class="muted">Construiește ciclul: adaugă segmente care se repetă în buclă.</div>
+      <div class="segment-row" style="margin-top:10px">
+        <div class="muted">Tip</div>
+        <div class="muted">Durată (min)</div>
+        <div class="muted">Viteză (km/h)</div>
+        <div></div>
+      </div>
       <div class="segments-list" id="segmentsList"></div>
       <button class="secondary small" onclick="addSegmentRow()">+ Adaugă segment</button>
     </div>
@@ -199,11 +205,27 @@ function collectSegments() {
 }
 
 async function loadScenarios() {
-  const res = await fetch('/admin/api/scenarios', { headers: headers() });
-  if (!res.ok) return;
-  scenarios = await res.json();
   const sel = document.getElementById('scenarioSelect');
-  sel.innerHTML = scenarios.map((s) => `<option value="${s}">${s}</option>`).join('');
+  try {
+    const res = await fetch('/admin/api/scenarios', { headers: headers() });
+    if (res.status === 401) {
+      document.getElementById('tokenBar').classList.add('show');
+      sel.innerHTML = '<option value="">— introdu tokenul admin mai sus —</option>';
+      return;
+    }
+    if (!res.ok) {
+      sel.innerHTML = `<option value="">Eroare server (${res.status})</option>`;
+      return;
+    }
+    scenarios = await res.json();
+    if (!scenarios.length) {
+      sel.innerHTML = '<option value="">Niciun scenariu disponibil</option>';
+      return;
+    }
+    sel.innerHTML = scenarios.map((s) => `<option value="${s}">${s}</option>`).join('');
+  } catch (e) {
+    sel.innerHTML = '<option value="">Nu s-a putut contacta serverul</option>';
+  }
 }
 
 function segmentBadgeClass(type) {
